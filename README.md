@@ -1,6 +1,6 @@
 # README #
 
-Running instructions:
+### Running instructions: ###
 
 * Copy all the files in <your directory>.
 
