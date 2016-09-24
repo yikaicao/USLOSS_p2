@@ -211,10 +211,11 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
         // 1.2 update blockedList
         pushBlockedList(&MailBoxTable[mboxID].blockedList, newBlocked);
         
-        blockMe(SEND_BLOCKED);
-        // 1.3 dequeue blockedList
-        dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
-        // 1.4 update process table
+        //----------------------------------------//
+        blockMe(SEND_BLOCKED);  // see MboxReceive Section 2 for steps
+        //----------------------------------------//
+        
+        // 1.3 update process table again
         emptyMboxProc(newProcPos);
         
         return 0;
@@ -306,7 +307,9 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
         // 1.2 update blocked list
         pushBlockedList(&MailBoxTable[mboxID].blockedList, newBlocked);
         
-        blockMe(RECEIVE_BLOCKED);
+        //----------------------------------------//
+        blockMe(RECEIVE_BLOCKED);   // see MboxSend Section 2 for next steps
+        //----------------------------------------//
         
         // 1.3 update process table again
         int recSize = ProcTable[newProcPos].recSize;
@@ -339,8 +342,11 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
         memcpy(wasBlocked->msg, MailBoxTable[mboxID].blockedList->buffer,
                MailBoxTable[mboxID].blockedList->bufferSize);
         pushMailSlot(&MailBoxTable[mboxID].slotsList, wasBlocked);
-        // 2.4 unblockProc
-        unblockProc(MailBoxTable[mboxID].blockedList->procID);
+        // 2.4 dequeue blockedList
+        int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+        dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+        // 2.5 unblockProc
+        unblockProc(toBeUnblockedID);
         return recSize;
     }
     
