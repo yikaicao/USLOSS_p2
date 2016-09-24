@@ -36,14 +36,15 @@ LIBS = -l$(PHASE1LIB) -lphase2 -lusloss
 $(TARGET):	$(COBJS)
 		$(AR) -r $@ $(COBJS) 
 
-$(TESTS):	$(TARGET) $(TESTDIR)/$$@.c p1.o
+$(TESTS):       $(TARGET) p1.o
 	$(CC) $(CFLAGS) -c $(TESTDIR)/$@.c
 	$(CC) $(LDFLAGS) -o $@ $(LIBS) $@.o $(LIBS) p1.o
 # $(LIBS) appears twice on previous line so startup can "find" start1
 # on Linux.  The first occurrence is not necessary on OS X
 
 clean:
-	rm -f $(COBJS) $(TARGET) core term*.out test*.o $(TESTS) p1.o
+	rm -f $(COBJS) $(TARGET) core term*.out test*.o test??.txt $(TESTS) \
+		p1.o term*in
 
 phase2.o:	message.h
 

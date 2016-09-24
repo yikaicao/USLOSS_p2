@@ -1,6 +1,6 @@
 #!/bin/ksh
 dir=/home/cs452/fall16/phase2/testResults
-dir=/home/cs452/fall16/admin/project/phase2/testResults
+#dir=/home/cs452/fall16/admin/project/phase2/testResults
 #dir=/Users/patrick/Classes/452/project/phase2/testResults
 
 if [ "$#" -eq 0 ] 
