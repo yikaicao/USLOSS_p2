@@ -2,6 +2,7 @@
 
 Running instructions:
 * Copy all the files in <your directory>.
+
 * In shell, cd to <your directory>.
 * Type 'testphase2.ksh [00-44]' to run test cases.
 
