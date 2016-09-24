@@ -27,12 +27,15 @@ int check_io();
 
 void emptyMailBox(int);
 void emptyMailSlot(int);
+void emptyMboxProc(int);
 
 int getBoxID();
 int getSlotID();
+int getProcPos();
 
 void printMailBoxTable();
 void printBlockedList(int);
+void printMboxProc(int);
 
 void pushMailSlot(slotPtr *, slotPtr);
 void dequeueSlotsList(slotPtr *);
@@ -87,6 +90,10 @@ int start1(char *arg)
     for (i = 0; i < MAXSLOTS; i++)
     {
         emptyMailSlot(i);
+    }
+    for (i = 0; i < MAXPROC; i++)
+    {
+        emptyMboxProc(i);
     }
     // Initialize USLOSS_IntVec and system call handlers,
     // allocate mailboxes for interrupt handlers.  Etc...
@@ -188,7 +195,13 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
         if (DEBUG2 && debugflag2)
             USLOSS_Console("MboxSend(): no slot available, blocking sender\n");
         // 1.1 update process table
-        mboxProcPtr newBlocked = &ProcTable[getpid() % MAXPROC];
+        int newProcPos = getProcPos();
+        if (newProcPos == -1)
+        {
+            USLOSS_Console("MboxSend(): no new proc slot available, halting...\n");
+            USLOSS_Halt(1);
+        }
+        mboxProcPtr newBlocked = &ProcTable[newProcPos];
         newBlocked->procID      = getpid();
         newBlocked->status      = SEND_BLOCKED;
         newBlocked->nextBlocked = NULL;
@@ -202,7 +215,7 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
         // 1.3 dequeue blockedList
         dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
         // 1.4 update process table
-        ProcTable[getpid() % MAXPROC].procID   = -1;
+        emptyMboxProc(newProcPos);
         
         return 0;
     }
@@ -215,12 +228,17 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
             USLOSS_Console("MboxSend(): unblocking receiver(s)\n");
             printBlockedList(mboxID);
         }
-        // transfer msg
+        
+        // 2.1 transfer msg
         if (MailBoxTable[mboxID].blockedList->bufferSize < msgSize)
             return -1;
         memcpy(MailBoxTable[mboxID].blockedList->buffer, msgPtr, msgSize);
         MailBoxTable[mboxID].blockedList->recSize = msgSize;
-        unblockProc(MailBoxTable[mboxID].blockedList->procID);
+        // 2.2 dequeue blocked list
+        int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+        dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+        // 2.3 unblock
+        unblockProc(toBeUnblockedID);
         return 0;
     }
     
@@ -271,25 +289,30 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
     {
         if (DEBUG2 && debugflag2)
             USLOSS_Console("MboxReceive(): no msg, blocking receiver\n");
-        // update process table
-        mboxProcPtr newBlocked = &ProcTable[getpid() % MAXPROC];
+        // 1.1 update process table
+        int newProcPos = getProcPos();
+        if (newProcPos == -1)
+        {
+            USLOSS_Console("MboxSend(): no new proc slot available, halting...\n");
+            USLOSS_Halt(1);
+        }
+        mboxProcPtr newBlocked = &ProcTable[newProcPos];
         newBlocked->procID     = getpid();
         newBlocked->status     = RECEIVE_BLOCKED;
         newBlocked->nextBlocked= NULL;
         newBlocked->buffer     = msgPtr;
         newBlocked->bufferSize = msgReceiveSize;
         newBlocked->recSize    = -1;
-        // update mailbox table
+        // 1.2 update blocked list
         pushBlockedList(&MailBoxTable[mboxID].blockedList, newBlocked);
         
         blockMe(RECEIVE_BLOCKED);
         
-        // update mailbox table again
-        dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
-        // update process table again
-        ProcTable[getpid() % MAXPROC].procID   = -1;
+        // 1.3 update process table again
+        int recSize = ProcTable[newProcPos].recSize;
+        emptyMboxProc(newProcPos);
         
-        return ProcTable[getpid() % MAXPROC].recSize;
+        return recSize;
     }
     
     // 2. has msg (checked above), at least one sender blocked
@@ -385,7 +408,8 @@ int check_io()
 /* ------------------------- emptyMailBox ----------------------------------- */
 void emptyMailBox(int id)
 {
-    MailBoxTable[id] = (struct mailbox) {
+    MailBoxTable[id] = (struct mailbox)
+    {
         .mboxID     = -1,
         .numSlots   = -1,
         .slotSize   = -1,
@@ -394,10 +418,11 @@ void emptyMailBox(int id)
     };
 }
 
-/* ------------------------- emptyMailSlot ----------------------------------- */
+/* ------------------------- emptyMailSlot ------------------------- */
 void emptyMailSlot(int id)
 {
-    MailSlotTable[id] = (struct mailSlot) {
+    MailSlotTable[id] = (struct mailSlot)
+    {
         .mboxID     = -1,
         .slotID     = -1,
         .msgSize    = -1,
@@ -406,16 +431,26 @@ void emptyMailSlot(int id)
     memset(MailSlotTable[id].msg, 0, MAX_MESSAGE);
 }
 
+/* ------------------------- emptyMboxProc ------------------------- */
+void emptyMboxProc(int id)
+{
+    ProcTable[id] = (struct mboxProc)
+    {
+        .procID     = -1,
+        .status     = -1,
+        .nextBlocked= NULL,
+        .buffer     = NULL,
+        .bufferSize = -1,
+        .recSize    = -1
+    };
+}
+
 /* ------------------------- getBoxID ----------------------------------- */
 int getBoxID()
 {
     for (int i = 0; i < MAXMBOX; i++)
-    {
         if (MailBoxTable[i].mboxID == -1)
-        {
             return i;
-        }
-    }
     return -1;
 }
 
@@ -423,12 +458,17 @@ int getBoxID()
 int getSlotID()
 {
     for (int i = 0; i < MAXSLOTS; i++)
-    {
         if (MailSlotTable[i].mboxID == -1)
-        {
             return i;
-        }
-    }
+    return -1;
+}
+
+/* ------------------------- getProcPos ----------------------------------- */
+int getProcPos()
+{
+    for (int i = 0; i < MAXPROC; i++)
+        if (ProcTable[i].procID == -1)
+            return i;
     return -1;
 }
 
@@ -444,7 +484,7 @@ void printMailBoxTable()
     }
 }
 
-/* ------------------------- printMailBox ------------------------- */
+/* ------------------------- printBlockedList ------------------------- */
 void printBlockedList(int id)
 {
     mboxProcPtr tmp = MailBoxTable[id].blockedList;
@@ -456,6 +496,17 @@ void printBlockedList(int id)
                        tmp->bufferSize);
         tmp = tmp->nextBlocked;
     }
+}
+
+/* ------------------------- printMboxProc ------------------------- */
+void printMboxProc(int id)
+{
+    mboxProcPtr tmp = &ProcTable[id];
+    USLOSS_Console("procID = %d, status = %d, bufferSize = %d, recSize = %d\n",
+                   tmp->procID,
+                   tmp->status,
+                   tmp->bufferSize,
+                   tmp->recSize);
 }
 
 /* ------------------------- pushMailSlot -------------------------
