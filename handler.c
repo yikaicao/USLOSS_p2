@@ -6,14 +6,14 @@
 extern int debugflag2;
 
 /* an error method to handle invalid syscalls */
-void nullsys(sysargs *args)
+void nullsys(systemArgs *args)
 {
     USLOSS_Console("nullsys(): Invalid syscall. Halting...\n");
     USLOSS_Halt(1);
 } /* nullsys */
 
 
-void clockHandler2(int dev, int unit)
+void clockHandler2(int dev, void *arg)
 {
 
    if (DEBUG2 && debugflag2)
@@ -23,7 +23,7 @@ void clockHandler2(int dev, int unit)
 } /* clockHandler */
 
 
-void diskHandler(int dev, int unit)
+void diskHandler(int dev, void *arg)
 {
 
    if (DEBUG2 && debugflag2)
@@ -33,7 +33,7 @@ void diskHandler(int dev, int unit)
 } /* diskHandler */
 
 
-void termHandler(int dev, int unit)
+void termHandler(int dev, void *arg)
 {
 
    if (DEBUG2 && debugflag2)
@@ -43,7 +43,7 @@ void termHandler(int dev, int unit)
 } /* termHandler */
 
 
-void syscallHandler(int dev, int unit)
+void syscallHandler(int dev, void *arg)
 {
 
    if (DEBUG2 && debugflag2)
