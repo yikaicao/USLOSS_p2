@@ -5,6 +5,7 @@
    Computer Science 452
 
    ------------------------------------------------------------------------ */
+//TODO process zap'd for mbox send, receive
 
 #include <phase1.h>
 #include <phase2.h>
@@ -168,6 +169,7 @@ int MboxCreate(int numSlots, int slotSize)
 int MboxSend(int mboxID, void *msgPtr, int msgSize)
 {
     /*
+        0. 0-slot mailbox
         1. no slot available, sender blocked
         2. slot available, receiver(s) blocked -> transfer msg -> unblock one receiver
         3. slot available, no receiver blocked, normal cases -> send msg
@@ -190,6 +192,73 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
         USLOSS_Halt(1);
     }
     
+    /*  
+        0. 0-slot mailbox
+        0.1 there is at least one blocked process
+        0.1.1 blocked on send -> enqueue
+        0.1.2 blocked on receive -> transfer msg -> unblock one receiver
+        0.2 there is no previously blocked process
+        0.2.1 current gets blocked on send
+     */
+    // 0. 0-slot mailbox
+    if (MailBoxTable[mboxID].numSlots == 0)
+    {
+        if (DEBUG2 && debugflag2)
+            USLOSS_Console("MboxSend(): sending to a 0-slot mailbox\n");
+        // 0.1 there is at least one blocked process
+        if (MailBoxTable[mboxID].blockedList != NULL)
+        {
+            // 0.1.1 blocked on send
+            if (MailBoxTable[mboxID].blockedList->status == SEND_BLOCKED)
+            {
+                // 0.1.1.1 update process table
+                int newProcPos = getProcPos();
+                if (newProcPos == -1)
+                {
+                    USLOSS_Console("MboxSend(): no new proc slot available, halting...\n");
+                    USLOSS_Halt(1);
+                }
+                mboxProcPtr newBlocked = &ProcTable[newProcPos];
+                newBlocked->procID      = getpid();
+                newBlocked->status      = SEND_BLOCKED;
+                newBlocked->nextBlocked = NULL;
+                newBlocked->buffer      = msgPtr;
+                newBlocked->bufferSize  = msgSize;
+                newBlocked->recSize     = -1;
+                // 0.1.1.2 update blockedList
+                pushBlockedList(&MailBoxTable[mboxID].blockedList, newBlocked);
+                // 0.1.1.3 block invoking process
+                blockMe(SEND_BLOCKED);
+                // 0.1.1.4 update process table again
+                emptyMboxProc(newProcPos);
+                // 0.1.1.5 check if current mailbox is released
+                if (MailBoxTable[mboxID].mboxID == -1)
+                    return -3;
+                // 0.1.1.6 check if invoking process is zapped
+                if (isZapped())
+                    return -3;
+                return 0;
+            }
+            // 0.1.2 blocked on receive
+            else if (MailBoxTable[mboxID].blockedList->status == RECEIVE_BLOCKED)
+            {
+                if (DEBUG2 && debugflag2)
+                    USLOSS_Console("MboxSend(): 0-slot blocked on receive\n");
+                // 0.1.2.1 transfer msg
+                if (MailBoxTable[mboxID].blockedList->bufferSize < msgSize)
+                    return -1;
+                memcpy(MailBoxTable[mboxID].blockedList->buffer, msgPtr, msgSize);
+                MailBoxTable[mboxID].blockedList->recSize = msgSize;
+                // 0.1.2.2 dequeue blocked list
+                int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+                dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+                // 0.1.2.3 unblock
+                unblockProc(toBeUnblockedID);
+                return 0;
+            }
+        }
+        //TODO 0.2
+    }
     
     // 1. no slot available, block sender
     if (numActive(mboxID) == MailBoxTable[mboxID].numSlots)
@@ -229,10 +298,7 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
         
         // 1.5 check if this process is zapped
         if (isZapped())
-        {
-            USLOSS_Console("\t\tgot you!!\n");
             return -3;
-        }
         
         return 0;
     }
@@ -285,9 +351,10 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
    Returns - actual size of msg if successful, -1 if invalid args.
    Side Effects - none.
    ----------------------------------------------------------------------- */
-int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
+int MboxReceive(int mboxID, void *msgPtr, int msgRecSize)
 {
     /*
+        0. 0-slot mailbox
         1. no msg, receiver blocked
         2. has msg, sender(s) blocked -> receive -> unblock one sender
         3. has msg, no sender blocked, normal cases
@@ -299,9 +366,93 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
     // if arguments not valid
     if (mboxID >= MAXMBOX || mboxID < 0 ||
         MailBoxTable[mboxID].mboxID == -1 ||
-        msgReceiveSize < 0)
+        msgRecSize < 0)
         return -1;
 
+    
+    /*
+        0. 0-slot mailbox
+        0.1 there is at least one blocked process
+        0.1.1 blocked on send -> receive msg -> dequeue
+        0.1.2 blocked on receive -> enqueue
+        0.2 there is no previously blocked process -> block invoking process
+     */
+    // 0. 0-slot mailbox
+    if (MailBoxTable[mboxID].numSlots == 0)
+    {
+        if (DEBUG2 && debugflag2)
+            USLOSS_Console("MboxReceive(): receive from a 0-slot mailbox\n");
+        // 0.1 there is at least one blocked process
+        if (MailBoxTable[mboxID].blockedList != NULL)
+        {
+            // 0.1.1 blocked on send
+            if (MailBoxTable[mboxID].blockedList->status == SEND_BLOCKED)
+            {
+                if (DEBUG2 && debugflag2)
+                {
+                    USLOSS_Console("MboxReceive(): 0-slot, unblocking sender(s)\n");
+                    printBlockedList(mboxID);
+                }
+                // 0.1.1.1 receive msg
+                int recSize = MailBoxTable[mboxID].slotsList->msgSize;
+                if(msgRecSize < recSize)
+                    return -1;
+                memcpy(msgPtr, MailBoxTable[mboxID].slotsList->msg, recSize);
+                // 0.1.1.2 dequeue slotsList
+                dequeueSlotsList(&MailBoxTable[mboxID].slotsList);
+                // 0.1.1.3 push (blocked) mail slot
+                int newSlotID = getSlotID();
+                slotPtr wasBlocked = &MailSlotTable[newSlotID];
+                wasBlocked->mboxID      = mboxID;
+                wasBlocked->slotID      = newSlotID;
+                wasBlocked->msgSize     = MailBoxTable[mboxID].blockedList->bufferSize;
+                wasBlocked->nextSlotPtr = NULL;
+                memcpy(wasBlocked->msg, MailBoxTable[mboxID].blockedList->buffer,
+                       MailBoxTable[mboxID].blockedList->bufferSize);
+                pushMailSlot(&MailBoxTable[mboxID].slotsList, wasBlocked);
+                // 0.1.1.4 dequeue blocked list
+                int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+                dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+                // 0.1.1.5 unblock proc
+                unblockProc(toBeUnblockedID);
+                return recSize;
+            }
+            // 0.1.2 TODO blocked on receive
+        }
+        // 0.2 there is no previously blocked process
+        else
+        {
+            if (DEBUG2 && debugflag2)
+            {
+                USLOSS_Console("MboxReceive(): 0-slot, no previously blocked\n");
+                printBlockedList(mboxID);
+            }
+            // 0.2.1 update process table
+            int newProcPos = getProcPos();
+            if (newProcPos == -1)
+            {
+                USLOSS_Console("MboxReceive(): no new proc slot available, halting...\n");
+                USLOSS_Halt(1);
+            }
+            mboxProcPtr newBlocked = &ProcTable[newProcPos];
+            newBlocked->procID     = getpid();
+            newBlocked->status     = RECEIVE_BLOCKED;
+            newBlocked->nextBlocked= NULL;
+            newBlocked->buffer     = msgPtr;
+            newBlocked->bufferSize = msgRecSize;
+            newBlocked->recSize    = -1;
+            // 0.2.2 update blocked list
+            pushBlockedList(&MailBoxTable[mboxID].blockedList, newBlocked);
+            // 0.2.3 block me
+            blockMe(RECEIVE_BLOCKED);
+            // 0.2.4 update process table again
+            int recSize = ProcTable[newProcPos].recSize;
+            emptyMboxProc(newProcPos);
+            
+            return recSize;
+        }
+    }
+    
     // 1. no msg, receiver blocked
     if (MailBoxTable[mboxID].slotsList == NULL)
     {
@@ -311,7 +462,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
         int newProcPos = getProcPos();
         if (newProcPos == -1)
         {
-            USLOSS_Console("MboxSend(): no new proc slot available, halting...\n");
+            USLOSS_Console("MboxReceive(): no new proc slot available, halting...\n");
             USLOSS_Halt(1);
         }
         mboxProcPtr newBlocked = &ProcTable[newProcPos];
@@ -319,7 +470,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
         newBlocked->status     = RECEIVE_BLOCKED;
         newBlocked->nextBlocked= NULL;
         newBlocked->buffer     = msgPtr;
-        newBlocked->bufferSize = msgReceiveSize;
+        newBlocked->bufferSize = msgRecSize;
         newBlocked->recSize    = -1;
         // 1.2 update blocked list
         pushBlockedList(&MailBoxTable[mboxID].blockedList, newBlocked);
@@ -345,7 +496,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
         }
         // 2.1 receive msg
         int recSize = MailBoxTable[mboxID].slotsList->msgSize;
-        if(msgReceiveSize < recSize)
+        if(msgRecSize < recSize)
             return -1;
         memcpy(msgPtr, MailBoxTable[mboxID].slotsList->msg, recSize);
         // 2.2 dequeue slotsList
@@ -372,14 +523,13 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
     // return actual size of msg
     int toReturn;
     // receive msg
-    if (MailBoxTable[mboxID].slotsList->msgSize > msgReceiveSize || MailBoxTable[mboxID].slotsList->msgSize < 0)
+    if (MailBoxTable[mboxID].slotsList->msgSize > msgRecSize || MailBoxTable[mboxID].slotsList->msgSize < 0)
         return -1;
     toReturn = MailBoxTable[mboxID].slotsList->msgSize;
     memcpy(msgPtr, MailBoxTable[mboxID].slotsList->msg, MailBoxTable[mboxID].slotsList->msgSize);
     dequeueSlotsList(&MailBoxTable[mboxID].slotsList);
     
     
-    //TODO return -3 if zapped
     return toReturn;
 } /* MboxReceive */
 
@@ -430,6 +580,157 @@ int MboxRelease(int mboxID)
     return 0;
 } /* MboxRelease */
 
+/* ------------------------------------------------------------------------
+    Name - MboxCondSend
+    Purpose - Conditionaly send a message to mailbox. 
+            Do not block the invoking process.
+    Parameters - mailbox id, pointer to data of msg, # of bytes in msg.
+    Returns - zero if successful, -1 if invalid args,
+                -2 if mailbox full, message not sent; or no slots available
+                -3 process was zap'd
+    Side Effects - none.
+ ----------------------------------------------------------------------- */
+int MboxCondSend(int mboxID, void *msgPtr, int msgSize)
+{
+    /*
+        1. no slot available -> return -2
+        2. slot available, receiver(s) blocked -> transfer msg -> unblock one receiver
+        3. slot available, no receiver blocked, normal cases -> send msg
+     */
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("MboxCondSend(): entered\n");
+    
+    check_kernel_mode("MboxCondSend");
+    // if mboxID not valid, or msgSize not valid
+    if (mboxID >= MAXMBOX || mboxID < 0 ||
+        MailBoxTable[mboxID].mboxID == -1 ||
+        msgSize > MailBoxTable[mboxID].slotSize || msgSize < 0)
+        return -1;
+    // attempt to create a new slot
+    int newSlotID = getSlotID();
+    // no new slot available
+    if (newSlotID == -1)
+        return -2;
+    
+    // 1. no slot available
+    if (numActive(mboxID) == MailBoxTable[mboxID].numSlots)
+        return -2;
+    
+    // 2. slot available (checked above), but at least one receiver blocked
+    if (MailBoxTable[mboxID].blockedList != NULL)
+    {
+        if (DEBUG2 && debugflag2)
+        {
+            USLOSS_Console("MboxCondSend(): unblocking receiver(s)\n");
+            printBlockedList(mboxID);
+        }
+        
+        // 2.1 transfer msg
+        if (MailBoxTable[mboxID].blockedList->bufferSize < msgSize)
+            return -1;
+        memcpy(MailBoxTable[mboxID].blockedList->buffer, msgPtr, msgSize);
+        MailBoxTable[mboxID].blockedList->recSize = msgSize;
+        // 2.2 dequeue blocked list
+        int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+        dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+        // 2.3 unblock
+        unblockProc(toBeUnblockedID);
+        return 0;
+    }
+    
+    // 3. normal cases
+    // setup new slot
+    slotPtr newSlot     = &MailSlotTable[newSlotID];
+    newSlot->mboxID     = mboxID;
+    newSlot->slotID     = newSlotID;
+    newSlot->msgSize    = msgSize;
+    newSlot->nextSlotPtr= NULL;
+    memset(newSlot->msg, 0, MAX_MESSAGE);
+    memcpy(newSlot->msg, msgPtr, msgSize);
+    // insert new slot
+    pushMailSlot(&MailBoxTable[mboxID].slotsList, newSlot);
+    
+    return 0;
+}
+
+/* ------------------------------------------------------------------------
+    Name - MboxCondReceive
+    Purpose - Conditionaly receive a message to mailbox.
+            Do not block the invoking process.
+    Parameters - mailbox id, pointer to data of msg, # of bytes in msg.
+    Returns - >= 0 the size of the message received,
+            -1 if invalid args,
+            -2 if mailbox empty
+            -3 process was zap'd
+    Side Effects - none.
+ ----------------------------------------------------------------------- */
+int MboxCondReceive(int mboxID, void *msgPtr, int msgRecSize)
+{
+    /*
+        1. no msg, return -2
+        2. has msg, sender(s) blocked -> receive -> unblock one sender
+        3. has msg, no sender blocked, normal cases
+     */
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("MboxCondReceive(): entered\n");
+    
+    check_kernel_mode("MboxCondReceive");
+    if (mboxID >= MAXMBOX || mboxID < 0 ||
+        MailBoxTable[mboxID].mboxID == -1 ||
+        msgRecSize < 0)
+        return -1;
+    
+    // 1. no msg
+    if (numActive(mboxID) <= 0)
+        return -2;
+    
+    // 2. has msg, sender(s) blocked
+    if (MailBoxTable[mboxID].blockedList != NULL)
+    {
+        if (DEBUG2 && debugflag2)
+        {
+            USLOSS_Console("MboxCondReceive(): unblocking sender(s)\n");
+            printBlockedList(mboxID);
+        }
+        // 2.1 receive msg
+        int recSize = MailBoxTable[mboxID].slotsList->msgSize;
+        if (DEBUG2 && debugflag2)
+        {
+            USLOSS_Console("MboxCondSend(): unblocking receiver(s)\n");
+            printBlockedList(mboxID);
+        }
+        // 2.2 dequeue slotsList
+        dequeueSlotsList(&MailBoxTable[mboxID].slotsList);
+        // 2.3 push (blocked) mail slot
+        int newSlotID = getSlotID();
+        slotPtr wasBlocked = &MailSlotTable[newSlotID];
+        wasBlocked->mboxID      = mboxID;
+        wasBlocked->slotID      = newSlotID;
+        wasBlocked->msgSize     = MailBoxTable[mboxID].blockedList->bufferSize;
+        wasBlocked->nextSlotPtr = NULL;
+        memcpy(wasBlocked->msg, MailBoxTable[mboxID].blockedList->buffer,
+               MailBoxTable[mboxID].blockedList->bufferSize);
+        pushMailSlot(&MailBoxTable[mboxID].slotsList, wasBlocked);
+        // 2.4 dequeue blockedList
+        int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+        dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+        // 2.5 unblock proc
+        unblockProc(toBeUnblockedID);
+        return recSize;
+    }
+    
+    // 3. normal cases
+    // return actual size of msg
+    int toReturn;
+    // receive msg
+    if (MailBoxTable[mboxID].slotsList->msgSize > msgRecSize || MailBoxTable[mboxID].slotsList->msgSize < 0)
+        return -1;
+    toReturn = MailBoxTable[mboxID].slotsList->msgSize;
+    memcpy(msgPtr, MailBoxTable[mboxID].slotsList->msg, MailBoxTable[mboxID].slotsList->msgSize);
+    dequeueSlotsList(&MailBoxTable[mboxID].slotsList);
+    
+    return toReturn;
+}
 
 
 /* %%%%%%%%%%%%%%%%%%%%%%%%% Added Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
