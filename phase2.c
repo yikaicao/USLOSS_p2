@@ -98,10 +98,14 @@ int start1(char *arg)
         emptyMboxProc(i);
     }
     // Initialize USLOSS_IntVec and system call handlers,
+    USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler2;
+    USLOSS_IntVec[USLOSS_DISK_INT] = diskHandler;
+    USLOSS_IntVec[USLOSS_TERM_INT] = termHandler;
+    USLOSS_IntVec[USLOSS_SYSCALL_INT] = syscallHandler;
     // allocate mailboxes for interrupt handlers.  Etc...
     for (i = 0; i < 7; i++)
     {
-        MboxCreate(0,MAX_MESSAGE);
+        MboxCreate(0, MAX_MESSAGE);
     }
 
     enableInterrupts();
@@ -381,7 +385,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgRecSize)
         2. has msg, sender(s) blocked -> receive -> unblock one sender
         3. has msg, no sender blocked, normal cases
      */
-    if (DEBUG2 && debugflag2)
+    if (1)
         USLOSS_Console("MboxReceive(): entered\n");
     
     check_kernel_mode("MboxReceive");
@@ -759,6 +763,38 @@ int MboxCondReceive(int mboxID, void *msgPtr, int msgRecSize)
     return toReturn;
 }
 
+
+/* ------------------------------------------------------------------------
+    Name - MboxCondReceive
+    Purpose - Do a receive operation on the mailbox associated with the given unit of the device type.
+    Parameters - type of device, unit # of device, status of relative device
+    Returns - -1 if zap'd
+               0 otherwise
+    Side Effects - status register of given unit will be updated
+ ----------------------------------------------------------------------- */
+int waitDevice(int type, int unit, int *status)
+{
+    if (1)
+        USLOSS_Console("waitDevice(): entered\n");
+    
+    char buffer[MAX_MESSAGE];
+    int result = -1;
+    
+    switch(type)
+    {
+        case (USLOSS_CLOCK_INT):
+            USLOSS_Console("\tgot here1\n");
+            result = MboxReceive(0, buffer, sizeof(buffer));
+            USLOSS_Console("\tgot here2\n");
+            return result;
+        default:
+            USLOSS_Console("waitDevice(): unknown device type, halting..\n");
+            USLOSS_Halt(1);
+    }
+    
+    
+    return 0;
+}
 
 /* %%%%%%%%%%%%%%%%%%%%%%%%% Added Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
 
