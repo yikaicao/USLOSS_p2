@@ -385,7 +385,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgRecSize)
         2. has msg, sender(s) blocked -> receive -> unblock one sender
         3. has msg, no sender blocked, normal cases
      */
-    if (1)
+    if (DEBUG2 && debugflag2)
         USLOSS_Console("MboxReceive(): entered\n");
     
     check_kernel_mode("MboxReceive");
@@ -565,7 +565,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgRecSize)
     are blocked on the releasing mailbox.
     Parameters - mailbox id.
     Returns - zero if successful, -1 if mailBoxID is invalid, -3 if 
-    process was zapâ€™d while releasing the mailbox.
+    process was zap’d while releasing the mailbox.
     Side Effects - The waiting process(es) will be zapped.
  ----------------------------------------------------------------------- */
 int MboxRelease(int mboxID)
