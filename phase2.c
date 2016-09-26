@@ -5,7 +5,7 @@
    Computer Science 452
 
    ------------------------------------------------------------------------ */
-//TODO process zap'd for mbox send, receive
+//TODO enable interrupts
 
 #include <phase1.h>
 #include <phase2.h>
@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include "message.h"
+#include "handler.h"
 
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
