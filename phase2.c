@@ -211,6 +211,8 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
             // 0.1.1 blocked on send
             if (MailBoxTable[mboxID].blockedList->status == SEND_BLOCKED)
             {
+                if (DEBUG2 && debugflag2)
+                    USLOSS_Console("MboxSend(): 0-slot blocked on send\n");
                 // 0.1.1.1 update process table
                 int newProcPos = getProcPos();
                 if (newProcPos == -1)
@@ -255,6 +257,11 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
                 // 0.1.2.3 unblock
                 unblockProc(toBeUnblockedID);
                 return 0;
+            }
+            else
+            {
+                USLOSS_Console("MboxSend(): 0-slot blocked on unknown status, halting..\n");
+                USLOSS_Halt(1);
             }
         }
         //TODO 0.2
@@ -696,7 +703,7 @@ int MboxCondReceive(int mboxID, void *msgPtr, int msgRecSize)
         int recSize = MailBoxTable[mboxID].slotsList->msgSize;
         if (DEBUG2 && debugflag2)
         {
-            USLOSS_Console("MboxCondSend(): unblocking receiver(s)\n");
+            USLOSS_Console("MboxCondReceive(): unblocking sender(s)\n");
             printBlockedList(mboxID);
         }
         // 2.2 dequeue slotsList
