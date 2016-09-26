@@ -131,6 +131,7 @@ int MboxCreate(int numSlots, int slotSize)
     if (DEBUG2 && debugflag2)
         USLOSS_Console("MboxCreate(): entered\n");
     
+    check_kernel_mode("MboxCreate");
     // slotSize or numSlots is incorrect
     if (slotSize < 0 || slotSize > MAX_MESSAGE || numSlots < 0 || numSlots > MAXSLOTS)
         return -1;
@@ -174,6 +175,7 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
     if (DEBUG2 && debugflag2)
         USLOSS_Console("MboxSend(): entered\n");
     
+    check_kernel_mode("MboxSend");
     // if mboxID not valid, or msgSize not valid
     if (mboxID >= MAXMBOX || mboxID < 0 ||
         MailBoxTable[mboxID].mboxID == -1 ||
@@ -214,9 +216,23 @@ int MboxSend(int mboxID, void *msgPtr, int msgSize)
         //----------------------------------------//
         blockMe(SEND_BLOCKED);  // see MboxReceive Section 2 for steps
         //----------------------------------------//
+        if (DEBUG2 && debugflag2)
+            USLOSS_Console("process %d is unblocked in mbsend, current mboxID = %d\n",
+                           getpid(), MailBoxTable[mboxID].mboxID);
         
         // 1.3 update process table again
         emptyMboxProc(newProcPos);
+        
+        // 1.4 check if current mailbox is released
+        if (MailBoxTable[mboxID].mboxID == -1)
+            return -3;
+        
+        // 1.5 check if this process is zapped
+        if (isZapped())
+        {
+            USLOSS_Console("\t\tgot you!!\n");
+            return -3;
+        }
         
         return 0;
     }
@@ -279,6 +295,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
     if (DEBUG2 && debugflag2)
         USLOSS_Console("MboxReceive(): entered\n");
     
+    check_kernel_mode("MboxReceive");
     // if arguments not valid
     if (mboxID >= MAXMBOX || mboxID < 0 ||
         MailBoxTable[mboxID].mboxID == -1 ||
@@ -310,6 +327,7 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
         //----------------------------------------//
         blockMe(RECEIVE_BLOCKED);   // see MboxSend Section 2 for next steps
         //----------------------------------------//
+        //TODO: After MboxRelease
         
         // 1.3 update process table again
         int recSize = ProcTable[newProcPos].recSize;
@@ -360,9 +378,57 @@ int MboxReceive(int mboxID, void *msgPtr, int msgReceiveSize)
     memcpy(msgPtr, MailBoxTable[mboxID].slotsList->msg, MailBoxTable[mboxID].slotsList->msgSize);
     dequeueSlotsList(&MailBoxTable[mboxID].slotsList);
     
+    
+    //TODO return -3 if zapped
     return toReturn;
 } /* MboxReceive */
 
+/* ------------------------------------------------------------------------
+    Name - MboxRelease
+    Purpose - Releases a previously created mailbox. Zap process(es) that 
+    are blocked on the releasing mailbox.
+    Parameters - mailbox id.
+    Returns - zero if successful, -1 if mailBoxID is invalid, -3 if 
+    process was zap’d while releasing the mailbox.
+    Side Effects - The waiting process(es) will be zapped.
+ ----------------------------------------------------------------------- */
+int MboxRelease(int mboxID)
+{
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("MboxRelease(): entered\n");
+    
+    check_kernel_mode("MboxRelease");
+    disableInterrupts();
+    if (mboxID >= MAXMBOX || mboxID < 0 ||
+        MailBoxTable[mboxID].mboxID == -1)
+        return -1;
+    
+    // inform waiting processes by makring its mxboID = -1, will completely empty it later
+    MailBoxTable[mboxID].mboxID = -1;
+    
+    // unblock waiting processes on this mail box
+    mboxProcPtr tmp = MailBoxTable[mboxID].blockedList;
+    while (tmp != NULL)
+    {
+        int toBeReleasedProcID = tmp->procID;
+        dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+        unblockProc(toBeReleasedProcID);
+        
+        // update tmp
+        tmp = MailBoxTable[mboxID].blockedList;
+    }
+    
+    // actually wipe out the mail box
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("wiping out mail box..\n");
+    emptyMailBox(mboxID);
+    
+    if (isZapped())
+        return -3;
+    
+    enableInterrupts();
+    return 0;
+} /* MboxRelease */
 
 
 
@@ -486,7 +552,7 @@ void printMailBoxTable()
     {
         mailbox curMB = MailBoxTable[i];
         if (curMB.mboxID != -1)
-            USLOSS_Console("MailBoxTable[%d] \tnumSlots = %d \tslotSize = %d\n", i, curMB.numSlots, curMB.slotSize);
+            USLOSS_Console("\tMailBoxTable[%d] \tnumSlots = %d \tslotSize = %d\n", i, curMB.numSlots, curMB.slotSize);
     }
 }
 
@@ -496,7 +562,7 @@ void printBlockedList(int id)
     mboxProcPtr tmp = MailBoxTable[id].blockedList;
     while(tmp != NULL)
     {
-        USLOSS_Console("blocked pid = %d, status = %d, bufferSize = %d\n",
+        USLOSS_Console("\tblocked pid = %d, status = %d, bufferSize = %d\n",
                        tmp->procID,
                        tmp->status,
                        tmp->bufferSize);
