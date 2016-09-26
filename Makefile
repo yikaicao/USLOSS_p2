@@ -4,7 +4,7 @@ ASSIGNMENT = 452phase2
 CC = gcc
 AR = ar
 
-COBJS = phase2.o
+COBJS = phase2.o handler.o
 CSRCS = ${COBJS:.o=.c}
 
 #PHASE1LIB = patrickphase1debug
@@ -12,7 +12,7 @@ PHASE1LIB = patrickphase1
 #PHASE1LIB = phase1
 #PHASE1LIB = phase1debug
 
-HDRS = message.h
+HDRS = message.h handler.h
 
 INCLUDE = ./usloss/include
 

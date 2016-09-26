@@ -2,6 +2,7 @@
 #include <phase1.h>
 #include <phase2.h>
 #include "message.h"
+#include "handler.h"
 
 extern int debugflag2;
 
@@ -16,9 +17,8 @@ void nullsys(systemArgs *args)
 void clockHandler2(int dev, void *arg)
 {
 
-   if (DEBUG2 && debugflag2)
-      USLOSS_Console("clockHandler2(): called\n");
-
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("clockHandler2(): called\n");
 
 } /* clockHandler */
 
@@ -26,9 +26,8 @@ void clockHandler2(int dev, void *arg)
 void diskHandler(int dev, void *arg)
 {
 
-   if (DEBUG2 && debugflag2)
-      USLOSS_Console("diskHandler(): called\n");
-
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("diskHandler(): called\n");
 
 } /* diskHandler */
 
@@ -36,8 +35,8 @@ void diskHandler(int dev, void *arg)
 void termHandler(int dev, void *arg)
 {
 
-   if (DEBUG2 && debugflag2)
-      USLOSS_Console("termHandler(): called\n");
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("termHandler(): called\n");
 
 
 } /* termHandler */
@@ -46,8 +45,8 @@ void termHandler(int dev, void *arg)
 void syscallHandler(int dev, void *arg)
 {
 
-   if (DEBUG2 && debugflag2)
-      USLOSS_Console("syscallHandler(): called\n");
+    if (DEBUG2 && debugflag2)
+        USLOSS_Console("syscallHandler(): called\n");
 
 
 } /* syscallHandler */
