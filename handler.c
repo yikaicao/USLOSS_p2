@@ -49,10 +49,12 @@ void diskHandler(int dev, void *arg)
 } /* diskHandler */
 
 
-void termHandler(int dev, int unit)
+void termHandler(int dev, void *arg)
 {
     if (DEBUG2 && debugflag2)
         USLOSS_Console("termHandler(): called\n");
+    
+    long unit = (long) arg;
     
     if (unit < 0 || unit >= 4)
     {
@@ -65,16 +67,19 @@ void termHandler(int dev, int unit)
     
 } /* termHandler */
 
-void syscallHandler(int dev, systemArgs *arg)
+void syscallHandler(int dev, void *arg)
 {
     if (DEBUG2 && debugflag2)
         USLOSS_Console("syscallHandler(): called\n");
     
-    if (arg->number < 0 || arg->number >= MAXSYSCALLS)
+    systemArgs *sysArgs = malloc(sizeof(systemArgs));
+    sysArgs = arg;
+    
+    if (sysArgs->number < 0 || sysArgs->number >= MAXSYSCALLS)
     {
-        USLOSS_Console("syscallHandler(): sys number %d is wrong.  Halting...\n", arg->number);
+        USLOSS_Console("syscallHandler(): sys number %d is wrong.  Halting...\n", sysArgs->number);
         USLOSS_Halt(1);
     }
-    nullsys(arg);
 
+    nullsys(sysArgs);
 } /* syscallHandler */
