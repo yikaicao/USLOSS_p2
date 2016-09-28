@@ -6,6 +6,9 @@
 #define SEND_BLOCKED    12
 #define RELEASE_BLOCKED 13
 
+#define clockHandlerMboxID 0
+#define termHandlerMboxID 1
+
 typedef struct mailSlot *slotPtr;
 typedef struct mailbox   mailbox;
 typedef struct mboxProc *mboxProcPtr;

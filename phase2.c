@@ -619,6 +619,7 @@ int MboxRelease(int mboxID)
 int MboxCondSend(int mboxID, void *msgPtr, int msgSize)
 {
     /*
+        0. 0-slot
         1. no slot available -> return -2
         2. slot available, receiver(s) blocked -> transfer msg -> unblock one receiver
         3. slot available, no receiver blocked, normal cases -> send msg
@@ -636,7 +637,63 @@ int MboxCondSend(int mboxID, void *msgPtr, int msgSize)
     int newSlotID = getSlotID();
     // no new slot available
     if (newSlotID == -1)
+    {
+        if (MailBoxTable[mboxID].numSlots == 0)
+            return 0;
         return -2;
+    }
+    
+    
+    // 0. 0-slot
+    if (MailBoxTable[mboxID].numSlots == 0)
+    {
+        // 0.1 at least one blocked process
+        if (MailBoxTable[mboxID].blockedList != NULL)
+        {
+            // 0.1.1 blocked on send
+            if (MailBoxTable[mboxID].blockedList->status == SEND_BLOCKED)
+            {
+                if (DEBUG2 && debugflag2)
+                    USLOSS_Console("MboxCondSend(): 0-slot blocked on send\n");
+                // 0.1.1.1 return 0 since conditional send
+                return 0;
+            }
+            // 0.1.2 blocked on receive
+            else if (MailBoxTable[mboxID].blockedList->status == RECEIVE_BLOCKED)
+            {
+                if (DEBUG2 && debugflag2)
+                    USLOSS_Console("MboxCondSend(): 0-slot blocked on receive\n");
+                // 0.1.2.1 transfer msg
+                if (MailBoxTable[mboxID].blockedList->bufferSize < msgSize)
+                {
+                    int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+                    dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+                    unblockProc(toBeUnblockedID);
+                    return -1;
+                }
+                memcpy(MailBoxTable[mboxID].blockedList->buffer, msgPtr, msgSize);
+                MailBoxTable[mboxID].blockedList->recSize = msgSize;
+                // 0.1.2.2 dequeue blocked list
+                int toBeUnblockedID = MailBoxTable[mboxID].blockedList->procID;
+                dequeueBlockedList(&MailBoxTable[mboxID].blockedList);
+                // 0.1.2.3 unblock
+                unblockProc(toBeUnblockedID);
+                return 0;
+            }
+        }
+        // 0.2 no previously blocked
+        // setup new slot
+        slotPtr newSlot     = &MailSlotTable[newSlotID];
+        newSlot->mboxID     = mboxID;
+        newSlot->slotID     = newSlotID;
+        newSlot->msgSize    = msgSize;
+        newSlot->nextSlotPtr= NULL;
+        memset(newSlot->msg, 0, MAX_MESSAGE);
+        memcpy(newSlot->msg, msgPtr, msgSize);
+        // insert new slot
+        pushMailSlot(&MailBoxTable[mboxID].slotsList, newSlot);
+        return 0;
+    }
     
     // 1. no slot available
     if (numActive(mboxID) == MailBoxTable[mboxID].numSlots)
@@ -765,7 +822,7 @@ int MboxCondReceive(int mboxID, void *msgPtr, int msgRecSize)
 
 
 /* ------------------------------------------------------------------------
-    Name - MboxCondReceive
+    Name - waitDevice
     Purpose - Do a receive operation on the mailbox associated with the given unit of the device type.
     Parameters - type of device, unit # of device, status of relative device
     Returns - -1 if zap'd
@@ -774,24 +831,21 @@ int MboxCondReceive(int mboxID, void *msgPtr, int msgRecSize)
  ----------------------------------------------------------------------- */
 int waitDevice(int type, int unit, int *status)
 {
-    if (1)
+    if (DEBUG2 && debugflag2)
         USLOSS_Console("waitDevice(): entered\n");
-    
-    char buffer[MAX_MESSAGE];
-    int result = -1;
     
     switch(type)
     {
         case (USLOSS_CLOCK_INT):
-            USLOSS_Console("\tgot here1\n");
-            result = MboxReceive(0, buffer, sizeof(buffer));
-            USLOSS_Console("\tgot here2\n");
-            return result;
+            MboxReceive(clockHandlerMboxID, status, sizeof(long));
+            return 0;
+        case (USLOSS_TERM_INT):
+            MboxReceive(termHandlerMboxID + unit - 1, status, sizeof(long));
+            return 0;
         default:
             USLOSS_Console("waitDevice(): unknown device type, halting..\n");
             USLOSS_Halt(1);
     }
-    
     
     return 0;
 }
@@ -838,6 +892,15 @@ void check_kernel_mode(char *arg)
 /* ------------------------- check_io ----------------------------------- */
 int check_io()
 {
+    int i;
+    for (i = 0; i < MAXPROC; i++)
+    {
+        if (ProcTable[i].status > 10)
+        {
+            return 1;
+        }
+    }
+        
     return 0;
 }
 

@@ -3,8 +3,8 @@
  * Each instance of XXp2 blocks on the mail box.  The priorities of the
  * three instances of XXp2 that are blocked on the mailbox are 4, 2, 2.
  * XXp3 creates XXp1 at priority 1.
- * XXp1 sends three different messages to the mailbox.
- * Each instance of XXp2 prints the message it receives.  The priority 4
+ * XXp3 sends three different messages to the mailbox.
+ * Each instance of XXp2 prints the message is receives.  The priority 4
  * instance should get "First message", the two priority two instances
  * should be "Second message" and "Third message".
  */
